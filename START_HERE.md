@@ -89,8 +89,8 @@ Before running, you need:
 /workout focus:Legs
   → AI builds a routine for that body part / split
 
-/checkin
-  → Mark you showed up; see who else checked in today
+/checkin proof:<photo>
+  → Check in WITH a photo; see who else checked in today
 
 /stats
   → View your progress

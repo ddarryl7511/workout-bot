@@ -103,6 +103,7 @@ class WorkoutBot:
                     user_id BIGINT REFERENCES users(user_id),
                     username TEXT,
                     note TEXT,
+                    proof_url TEXT,
                     checkin_date DATE DEFAULT CURRENT_DATE,
                     checked_in_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (user_id, checkin_date)
@@ -194,20 +195,21 @@ class WorkoutBot:
                 VALUES ($1, $2, $3, $4)
             """, user_id, channel_id, role, content)
 
-    async def add_checkin(self, user_id: int, username: str, note: str = None) -> dict:
+    async def add_checkin(self, user_id: int, username: str, proof_url: str, note: str = None) -> dict:
         """Record that a user checked in for their workout (once per day)."""
         async with self.pool.acquire() as conn:
             await self.ensure_user(conn, user_id, username)
 
-            # One check-in per person per day; update the note if they re-check-in
+            # One check-in per person per day; update photo/note if they re-check-in
             row = await conn.fetchrow("""
-                INSERT INTO checkins (user_id, username, note, checkin_date)
-                VALUES ($1, $2, $3, CURRENT_DATE)
+                INSERT INTO checkins (user_id, username, note, proof_url, checkin_date)
+                VALUES ($1, $2, $3, $4, CURRENT_DATE)
                 ON CONFLICT (user_id, checkin_date) DO UPDATE
                     SET note = COALESCE(EXCLUDED.note, checkins.note),
+                        proof_url = EXCLUDED.proof_url,
                         checked_in_at = CURRENT_TIMESTAMP
                 RETURNING (xmax = 0) AS is_new
-            """, user_id, username, note)
+            """, user_id, username, note, proof_url)
 
             total_today = await conn.fetchval(
                 "SELECT COUNT(*) FROM checkins WHERE checkin_date = CURRENT_DATE"
@@ -425,18 +427,28 @@ async def workout(
         await interaction.followup.send("❌ Couldn't build a workout right now. Try again in a sec.")
 
 
-@bot.slash_command(description="Check in for your workout so the crew sees you showed up")
+@bot.slash_command(description="Check in for your workout (photo proof required) so the crew sees you showed up")
 async def checkin(
     interaction: nextcord.Interaction,
+    proof: nextcord.Attachment = nextcord.SlashOption(
+        description="Photo proof of your workout (gym selfie, equipment, etc.)",
+        required=True,
+    ),
     note: str = nextcord.SlashOption(description="Optional: what are you training today?", required=False),
 ):
-    """Mark that you checked in today and show who else has."""
+    """Mark that you checked in today (with a photo) and show who else has."""
     await interaction.response.defer()
+
+    # Require an actual image, not just any file
+    if not (proof.content_type or "").startswith("image/"):
+        await interaction.followup.send("📸 Your check-in needs to be an **image** (jpg/png/gif). Try again with a photo.")
+        return
 
     try:
         result = await workout_bot.add_checkin(
             interaction.user.id,
             interaction.user.name,
+            proof.url,
             note,
         )
         checkins = await workout_bot.get_todays_checkins()
@@ -460,6 +472,7 @@ async def checkin(
             description=desc,
             color=nextcord.Color.green(),
         )
+        embed.set_image(url=proof.url)
         embed.add_field(
             name=f"🏋️ Checked in today ({result['total_today']})",
             value=roster or "Nobody yet — be the first!",

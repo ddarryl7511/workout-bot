@@ -5,7 +5,7 @@ A Discord bot for tracking workouts and supporting your crew on their fitness jo
 **Features:**
 - 💪 Log workouts with exercises, sets, reps, weight (fast, no AI noise)
 - 🏋️ `/workout <focus>` — AI-generated routines for legs, arms, push, full body, etc.
-- ✅ `/checkin` — show the crew who showed up today
+- ✅ `/checkin` — show the crew who showed up today (photo proof required)
 - 🤖 On-demand AI routines that reference your real history (runs locally via Ollama)
 - 📊 Personal stats and progress tracking
 - 🔥 Daily streak tracking
@@ -106,9 +106,9 @@ AI builds a full routine for the focus you pick (legs, arms, chest, back, should
 ```
 
 ### `/checkin`
-Mark that you showed up today so the crew can see who's in. Shows the full list of who's checked in.
+Mark that you showed up today **with photo proof** (gym selfie, equipment, etc.) so the crew can see who's in. The photo shows in the check-in card, plus the full list of who's checked in. One check-in per person per day.
 ```
-/checkin note:Leg day 🦵
+/checkin proof:<attach a photo> note:Leg day 🦵
 ```
 
 ### `/stats`
@@ -141,7 +141,7 @@ users               user_id (Discord ID), username, goals, preferences (JSON)
 workouts            id, user_id, exercise, sets, reps, weight, notes, duration, logged_at
 conversation_memory id, user_id, channel_id, message_role, message_content, timestamp
 goals               id, user_id, goal_text, target_date, progress_notes, created_at
-checkins            id, user_id, username, note, checkin_date, checked_in_at  (one per user/day)
+checkins            id, user_id, username, note, proof_url, checkin_date, checked_in_at  (one per user/day)
 leaderboard         user_id, total_volume, total_workouts, streak, last_workout, updated_at
 ```
 
