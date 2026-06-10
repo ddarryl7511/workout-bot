@@ -3,8 +3,9 @@
 A Discord bot for tracking workouts and supporting your crew on their fitness journey. Logs exercises, tracks progress, keeps streaks, and gives personalized coaching powered by a **local LLM via [Ollama](https://ollama.com)** — no API keys, no per-message costs, your data stays on your own machine.
 
 **Features:**
-- 💪 Log workouts with exercises, sets, reps, weight
-- 🤖 AI coaching that references your real history (runs locally via Ollama)
+- 💪 Log workouts with exercises, sets, reps, weight (fast, no AI noise)
+- 🏋️ `/workout <focus>` — AI-generated routines for legs, arms, push, full body, etc.
+- 🤖 On-demand AI coaching that references your real history (runs locally via Ollama)
 - 📊 Personal stats and progress tracking
 - 🔥 Daily streak tracking
 - 🏆 Server leaderboards by volume
@@ -86,7 +87,7 @@ The bot should come online in Discord. Try:
 ## Commands
 
 ### `/log_workout`
-Log a workout. The bot saves it, updates your streak, and replies with personalized coaching.
+Log a workout. Saves it, updates your streak, and replies instantly with a clean stats card — **no AI chatter**.
 ```
 /log_workout exercise:Bench Press sets:4 reps:8 weight:225 notes:Felt strong! duration:45
 ```
@@ -96,6 +97,12 @@ Log a workout. The bot saves it, updates your streak, and replies with personali
 - `weight` (required) — Weight in lbs
 - `notes` (optional) — Notes about the workout
 - `duration` (optional) — Duration in minutes
+
+### `/workout`
+AI builds a full routine for the focus you pick (legs, arms, chest, back, shoulders, core, push, pull, full body, cardio), tailored to your recent history.
+```
+/workout focus:Legs
+```
 
 ### `/advice`
 Ask a fitness question. The bot answers using your workout history and goals.
@@ -122,7 +129,9 @@ Everything lives in PostgreSQL, so the bot has real context when it coaches you:
 - Your recent conversation in that channel
 - Your active goals
 
-That context is fed to the local Ollama model on each `/log_workout` and `/advice`, so the advice references your actual training instead of being generic.
+That context is fed to the local Ollama model only when you run `/workout` or `/advice`, so the AI references your actual training instead of being generic.
+
+**The bot is command-only.** It has no message listener — it never reads or replies to your normal conversation in the server. It speaks only when someone runs one of its slash commands.
 
 ## Database schema
 

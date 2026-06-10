@@ -225,6 +225,44 @@ If they're struggling, acknowledge it and offer support."""
             print(f"Error getting AI response: {e}")
             return "Couldn't reach the coach right now. Keep crushing it though! 💪"
 
+    async def generate_workout_plan(self, user_id: int, channel_id: int, focus: str) -> str:
+        """Ask the local model to build a workout routine for a given focus area."""
+        context = await self.get_user_context(user_id, channel_id, limit=10)
+
+        system_prompt = f"""You are a knowledgeable strength coach for a Discord server of gym buddies.
+Generate a single, ready-to-do workout session focused on: {focus}.
+
+{context}
+
+Rules for the workout you write:
+- Tailor it to the user's recent history and goals above when relevant (progress their weights, avoid overtraining a muscle they just hit).
+- Give 5-7 exercises. For each: name, sets x reps, and a short cue or target weight note.
+- Include a quick warmup line and a finisher/optional line.
+- Keep it scannable with one exercise per line. Use light emoji for energy.
+- No long intros. Under 1500 characters total. End with one motivating sentence."""
+
+        user_message = f"Give me a {focus} workout for today."
+
+        try:
+            result = await ollama_client.chat(
+                model=OLLAMA_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                options={"num_predict": 700},
+            )
+            plan = result["message"]["content"].strip()
+            if len(plan) > 4000:
+                plan = plan[:3997] + "..."
+
+            # Remember that we suggested this, so follow-up advice has context
+            await self.store_message(user_id, channel_id, "assistant", f"[{focus} workout plan]\n{plan}")
+            return plan
+        except Exception as e:
+            print(f"Error generating workout plan: {e}")
+            return "Couldn't reach the coach to build a plan right now. Try again in a sec! 💪"
+
     async def log_workout(self, user_id: int, username: str, exercise: str, sets: int,
                           reps: int, weight: float, notes: str = None, duration: int = None) -> dict:
         """Log a workout to the database and update the leaderboard/streak"""
@@ -317,19 +355,10 @@ async def log_workout(
             duration,
         )
 
-        user_message = f"Just logged: {exercise} - {sets}x{reps} @ {weight}lbs"
-        if notes:
-            user_message += f". Notes: {notes}"
-
-        ai_response = await workout_bot.get_ai_response(
-            interaction.user.id,
-            interaction.channel_id,
-            user_message,
-        )
-
+        # Logging stays fast and quiet — no AI paragraph here. Ask for coaching
+        # explicitly with /advice or /workout when you want it.
         embed = nextcord.Embed(
             title="💪 Workout Logged!",
-            description=ai_response,
             color=nextcord.Color.green(),
             timestamp=workout["logged_at"],
         )
@@ -349,6 +378,52 @@ async def log_workout(
     except Exception as e:
         print(f"Error logging workout: {e}")
         await interaction.followup.send("❌ Something went wrong logging that workout. Try again in a sec.")
+
+
+@bot.slash_command(description="Get an AI-generated workout for a body part or split")
+async def workout(
+    interaction: nextcord.Interaction,
+    focus: str = nextcord.SlashOption(
+        description="What are we training?",
+        choices={
+            "Legs": "legs",
+            "Arms": "arms",
+            "Chest": "chest",
+            "Back": "back",
+            "Shoulders": "shoulders",
+            "Core / Abs": "core",
+            "Push": "push (chest, shoulders, triceps)",
+            "Pull": "pull (back, biceps)",
+            "Full Body": "full body",
+            "Cardio / Conditioning": "cardio and conditioning",
+        },
+    ),
+):
+    """Generate a workout routine for the chosen focus using the local AI."""
+    await interaction.response.defer()
+
+    try:
+        async with workout_bot.pool.acquire() as conn:
+            await workout_bot.ensure_user(conn, interaction.user.id, interaction.user.name)
+
+        plan = await workout_bot.generate_workout_plan(
+            interaction.user.id,
+            interaction.channel_id,
+            focus,
+        )
+
+        embed = nextcord.Embed(
+            title=f"🏋️ {focus.split('(')[0].strip().title()} Workout",
+            description=plan,
+            color=nextcord.Color.teal(),
+        )
+        embed.set_footer(text=f"Built for {interaction.user.name}")
+
+        await interaction.followup.send(embed=embed)
+
+    except Exception as e:
+        print(f"Error building workout: {e}")
+        await interaction.followup.send("❌ Couldn't build a workout right now. Try again in a sec.")
 
 
 @bot.slash_command(description="Get personalized fitness advice")

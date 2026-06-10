@@ -84,7 +84,10 @@ Before running, you need:
 
 ```
 /log_workout exercise:Bench Press sets:4 reps:8 weight:225
-  → Logs your workout + stores in memory
+  → Logs your workout (instant, no AI chatter)
+
+/workout focus:Legs
+  → AI builds a routine for that body part / split
 
 /stats
   → View your progress
