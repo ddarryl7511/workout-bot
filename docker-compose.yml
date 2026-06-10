@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: workout-bot-db
+    environment:
+      POSTGRES_USER: ${DB_USER:-workout_bot}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password123}
+      POSTGRES_DB: ${DB_NAME:-workout_bot}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-workout_bot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: workout-bot-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: always
+    # Uncomment the block below if the host has an NVIDIA GPU and the
+    # NVIDIA Container Toolkit installed (big speedup; CPU works fine otherwise).
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # One-shot helper that pulls the model into the ollama volume on first run.
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: workout-bot-ollama-pull
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "until ollama list >/dev/null 2>&1; do echo 'waiting for ollama...'; sleep 2; done;
+       ollama pull ${OLLAMA_MODEL:-llama3.2}"
+    restart: "no"
+
+  bot:
+    build: .
+    container_name: workout-bot
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      DATABASE_URL: postgresql://${DB_USER:-workout_bot}:${DB_PASSWORD:-password123}@postgres:5432/${DB_NAME:-workout_bot}
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    restart: always
+    volumes:
+      - ./logs:/app/logs
+
+volumes:
+  postgres_data:
+  ollama_data:
