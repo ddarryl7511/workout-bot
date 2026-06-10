@@ -98,6 +98,18 @@ class WorkoutBot:
             """)
 
             await conn.execute("""
+                CREATE TABLE IF NOT EXISTS checkins (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT REFERENCES users(user_id),
+                    username TEXT,
+                    note TEXT,
+                    checkin_date DATE DEFAULT CURRENT_DATE,
+                    checked_in_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (user_id, checkin_date)
+                )
+            """)
+
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS leaderboard (
                     user_id BIGINT PRIMARY KEY REFERENCES users(user_id),
                     total_volume FLOAT DEFAULT 0,
@@ -182,48 +194,35 @@ class WorkoutBot:
                 VALUES ($1, $2, $3, $4)
             """, user_id, channel_id, role, content)
 
-    async def get_ai_response(self, user_id: int, channel_id: int, user_message: str) -> str:
-        """Get contextual AI response using a local Ollama model"""
-        context = await self.get_user_context(user_id, channel_id, limit=15)
+    async def add_checkin(self, user_id: int, username: str, note: str = None) -> dict:
+        """Record that a user checked in for their workout (once per day)."""
+        async with self.pool.acquire() as conn:
+            await self.ensure_user(conn, user_id, username)
 
-        await self.store_message(user_id, channel_id, "user", user_message)
+            # One check-in per person per day; update the note if they re-check-in
+            row = await conn.fetchrow("""
+                INSERT INTO checkins (user_id, username, note, checkin_date)
+                VALUES ($1, $2, $3, CURRENT_DATE)
+                ON CONFLICT (user_id, checkin_date) DO UPDATE
+                    SET note = COALESCE(EXCLUDED.note, checkins.note),
+                        checked_in_at = CURRENT_TIMESTAMP
+                RETURNING (xmax = 0) AS is_new
+            """, user_id, username, note)
 
-        system_prompt = f"""You are a supportive, knowledgeable fitness coach for a Discord server of gym buddies.
-You have access to the user's recent workout history, goals, and conversation context.
-
-{context}
-
-Your responses should be:
-- Motivational and encouraging
-- Based on their actual workout history and progress
-- Specific and actionable (reference their exercises, weights, goals)
-- Conversational and friendly
-- Concise (Discord message friendly - under 1500 chars)
-
-If they log a workout, congratulate them with specific details.
-If they ask for advice, reference their history and goals.
-If they're struggling, acknowledge it and offer support."""
-
-        try:
-            result = await ollama_client.chat(
-                model=OLLAMA_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                options={"num_predict": 500},
+            total_today = await conn.fetchval(
+                "SELECT COUNT(*) FROM checkins WHERE checkin_date = CURRENT_DATE"
             )
+            return {"is_new": row["is_new"], "total_today": total_today}
 
-            response = result["message"]["content"].strip()
-            # Discord embed descriptions cap at 4096 chars; keep it safe
-            if len(response) > 1500:
-                response = response[:1497] + "..."
-
-            await self.store_message(user_id, channel_id, "assistant", response)
-            return response
-        except Exception as e:
-            print(f"Error getting AI response: {e}")
-            return "Couldn't reach the coach right now. Keep crushing it though! 💪"
+    async def get_todays_checkins(self):
+        """Return everyone who has checked in today, earliest first."""
+        async with self.pool.acquire() as conn:
+            return await conn.fetch("""
+                SELECT user_id, username, note, checked_in_at
+                FROM checkins
+                WHERE checkin_date = CURRENT_DATE
+                ORDER BY checked_in_at ASC
+            """)
 
     async def generate_workout_plan(self, user_id: int, channel_id: int, focus: str) -> str:
         """Ask the local model to build a workout routine for a given focus area."""
@@ -355,8 +354,8 @@ async def log_workout(
             duration,
         )
 
-        # Logging stays fast and quiet — no AI paragraph here. Ask for coaching
-        # explicitly with /advice or /workout when you want it.
+        # Logging stays fast and quiet — no AI paragraph here. Ask for a routine
+        # explicitly with /workout when you want one.
         embed = nextcord.Embed(
             title="💪 Workout Logged!",
             color=nextcord.Color.green(),
@@ -426,37 +425,52 @@ async def workout(
         await interaction.followup.send("❌ Couldn't build a workout right now. Try again in a sec.")
 
 
-@bot.slash_command(description="Get personalized fitness advice")
-async def advice(
+@bot.slash_command(description="Check in for your workout so the crew sees you showed up")
+async def checkin(
     interaction: nextcord.Interaction,
-    question: str = nextcord.SlashOption(description="Your fitness question"),
+    note: str = nextcord.SlashOption(description="Optional: what are you training today?", required=False),
 ):
-    """Get AI fitness advice based on your history"""
+    """Mark that you checked in today and show who else has."""
     await interaction.response.defer()
 
     try:
-        # Make sure the user exists so context/memory has something to attach to
-        async with workout_bot.pool.acquire() as conn:
-            await workout_bot.ensure_user(conn, interaction.user.id, interaction.user.name)
-
-        response = await workout_bot.get_ai_response(
+        result = await workout_bot.add_checkin(
             interaction.user.id,
-            interaction.channel_id,
-            question,
+            interaction.user.name,
+            note,
         )
+        checkins = await workout_bot.get_todays_checkins()
+
+        if result["is_new"]:
+            title = "✅ Checked In!"
+            desc = f"<@{interaction.user.id}> is in for today. 💪"
+        else:
+            title = "🔁 Already Checked In"
+            desc = f"<@{interaction.user.id}>, you're already counted for today."
+
+        roster = "\n".join([
+            f"• <@{c['user_id']}>"
+            + (f" — {c['note']}" if c["note"] else "")
+            + f"  _( {c['checked_in_at'].strftime('%I:%M %p').lstrip('0')} )_"
+            for c in checkins
+        ])
 
         embed = nextcord.Embed(
-            title="🏋️ Fitness Advice",
-            description=response,
-            color=nextcord.Color.blue(),
+            title=title,
+            description=desc,
+            color=nextcord.Color.green(),
         )
-        embed.set_footer(text=f"Asked by {interaction.user.name}")
+        embed.add_field(
+            name=f"🏋️ Checked in today ({result['total_today']})",
+            value=roster or "Nobody yet — be the first!",
+            inline=False,
+        )
 
         await interaction.followup.send(embed=embed)
 
     except Exception as e:
-        print(f"Error getting advice: {e}")
-        await interaction.followup.send("❌ Couldn't get advice right now. Try again in a sec.")
+        print(f"Error on checkin: {e}")
+        await interaction.followup.send("❌ Couldn't record your check-in right now. Try again in a sec.")
 
 
 @bot.slash_command(description="View your workout stats")

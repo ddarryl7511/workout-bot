@@ -89,14 +89,14 @@ Before running, you need:
 /workout focus:Legs
   → AI builds a routine for that body part / split
 
+/checkin
+  → Mark you showed up; see who else checked in today
+
 /stats
   → View your progress
 
 /leaderboard
   → See server rankings
-
-/advice question:How do I program my bench to 315?
-  → Personalized coaching from your history
 
 /set_goal goal:Bench 315 lbs days:90
   → Set a goal (bot remembers it)

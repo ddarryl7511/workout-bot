@@ -5,7 +5,8 @@ A Discord bot for tracking workouts and supporting your crew on their fitness jo
 **Features:**
 - 💪 Log workouts with exercises, sets, reps, weight (fast, no AI noise)
 - 🏋️ `/workout <focus>` — AI-generated routines for legs, arms, push, full body, etc.
-- 🤖 On-demand AI coaching that references your real history (runs locally via Ollama)
+- ✅ `/checkin` — show the crew who showed up today
+- 🤖 On-demand AI routines that reference your real history (runs locally via Ollama)
 - 📊 Personal stats and progress tracking
 - 🔥 Daily streak tracking
 - 🏆 Server leaderboards by volume
@@ -104,10 +105,10 @@ AI builds a full routine for the focus you pick (legs, arms, chest, back, should
 /workout focus:Legs
 ```
 
-### `/advice`
-Ask a fitness question. The bot answers using your workout history and goals.
+### `/checkin`
+Mark that you showed up today so the crew can see who's in. Shows the full list of who's checked in.
 ```
-/advice question:How should I program my bench to hit 315?
+/checkin note:Leg day 🦵
 ```
 
 ### `/stats`
@@ -129,7 +130,7 @@ Everything lives in PostgreSQL, so the bot has real context when it coaches you:
 - Your recent conversation in that channel
 - Your active goals
 
-That context is fed to the local Ollama model only when you run `/workout` or `/advice`, so the AI references your actual training instead of being generic.
+That context is fed to the local Ollama model only when you run `/workout`, so the routines reference your actual training instead of being generic.
 
 **The bot is command-only.** It has no message listener — it never reads or replies to your normal conversation in the server. It speaks only when someone runs one of its slash commands.
 
@@ -140,6 +141,7 @@ users               user_id (Discord ID), username, goals, preferences (JSON)
 workouts            id, user_id, exercise, sets, reps, weight, notes, duration, logged_at
 conversation_memory id, user_id, channel_id, message_role, message_content, timestamp
 goals               id, user_id, goal_text, target_date, progress_notes, created_at
+checkins            id, user_id, username, note, checkin_date, checked_in_at  (one per user/day)
 leaderboard         user_id, total_volume, total_workouts, streak, last_workout, updated_at
 ```
 
@@ -188,7 +190,7 @@ See `.env.example` for a template.
 ## Customization
 
 - **Different model** — pull another model (`ollama pull mistral`) and set `OLLAMA_MODEL`.
-- **Coaching tone** — edit the `system_prompt` in `get_ai_response()` (`claude_fitness_prompt.txt` has a fuller reference version).
+- **Coaching tone** — edit the `system_prompt` in `generate_workout_plan()` (`claude_fitness_prompt.txt` has a fuller reference version).
 - **Memory depth** — change the `limit` in `get_user_context()`.
 - **New commands** — copy the `@bot.slash_command` pattern.
 
